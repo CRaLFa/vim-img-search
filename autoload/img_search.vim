@@ -4,72 +4,58 @@ let s:TMP_DIR = expand('~/.vim/img-search')
 let s:URL_FILE = s:TMP_DIR . '/url.txt'
 let s:REG_TMP = '"'
 
-let s:window
-let s:imgidx
+let s:window = {}
+let s:imgidx = 1
 
 let s:save_cpo = &cpo
 set cpo&vim
 
-function! s:search_image(mode) abort
-    if !exists('g:img_search_api_key') || !exists('g:img_search_engine_id')
-        echo 'Both g:img_search_api_key and g:img_search_engine_id are required'
-        return
-    endif
-
-    let l:searchword = ''
-    if a:mode ==# 'normal'
-        let l:searchword = expand('<cword>')
-    elseif a:mode ==# 'visual'
-        let l:searchword = s:get_selected_word()
-    else
-        echoerr 'Invalid mode'
-    endif
-
-    if empty(l:searchword)
-        return
-    endif
-
-    let l:urls = s:get_image_urls(l:searchword)
-    call s:save_url_file(l:searchword, l:urls)
-
-    let s:imgidx = 1
-    call s:show_image()
+function! s:get_selected_word() abort
+    execute 'normal! "' . s:REG_TMP . 'y'
+    return getreg(s:REG_TMP)->trim(" \t")->substitute('[\r\n]\+', ' ', 'g')
 endfunction
 
-function! s:show_prev_image() abort
-    if s:imgidx <= 1
-        echo 'No image'
-        return
-    endif
+function! s:get_image_urls(query) abort
+    let l:encodedquery = system('jq -Rr @uri', a:query)->trim()
+    let l:url = printf('https://www.googleapis.com/customsearch/v1?key=%s&cx=%s&searchType=image&q=%s', g:img_search_api_key, g:img_search_engine_id, l:encodedquery)
 
-    let s:imgidx -= 1
+    try
+        let l:res = printf("curl -s '%s'", l:url)->system()->json_decode()
+        return l:res.items
+            \ ->map('v:val.link')
+            \ ->filter('v:val->tolower()->match("\.\(png\|jpg\|jpeg\)$") >= 0')
+    catch
+        echoerr v:exception
+    endtry
 
-    call s:clear_image()
-    call s:show_image()
+    return []
 endfunction
 
-function! s:show_next_image() abort
-    if s:imgidx > 10
-        echo 'No image'
-        return
+function! s:save_url_file(searchword, urls) abort
+    if !isdirectory(s:TMP_DIR)
+        call mkdir(s:TMP_DIR, 'p')
     endif
 
-    let s:imgidx += 1
+    glob(s:TMP_DIR . '/*.sixel')->split("\n")->map('delete(v:val)')
 
-    call s:clear_image()
-    call s:show_image()
+    a:urls->insert(a:searchword)
+    call writefile(a:urls, s:URL_FILE)
 endfunction
 
-function! s:clear_image() abort
-    if empty(s:window)
-        return
-    endif
+function! s:open_window(winname) abort
+    execute 'silent new +set\ nonumber ' . a:winname
 
-    call echoraw(printf("\x1b[%d;%dH\x1b[J", s:window.row, s:window.col))
-    call win_execute(s:window.id, 'close')
+    let l:winid = win_getid()
+    let l:pos = screenpos(l:winid, 1, 1)
+
+    silent! wincmd p
     redraw
 
-    let s:window = {}
+    return {
+    \   'id': l:winid,
+    \   'row': l:pos.row,
+    \   'col': l:pos.col,
+    \ }
 endfunction
 
 function! s:show_image() abort
@@ -107,57 +93,71 @@ function! s:show_image() abort
     endif
 
     let l:winname = printf('%s (%d／%d)', l:urls->get(0, '')->trim(), s:imgidx, l:urls->len() - 1)
-    let s:window = open_window(l:winname)
+    let s:window = s:open_window(l:winname)
 
-    call echoraw(printf("\x1b[%d;%dH%s", s:window.row, s:window.col, l:sixel))
+    printf("\x1b[%d;%dH%s", s:window.row, s:window.col, l:sixel)->echoraw()
 endfunction
 
-function! s:get_selected_word() abort
-    execute 'normal! "' . s:REG_TMP . 'y'
-    return getreg(s:REG_TMP)->trim(" \t")->substitute('[\r\n]\+', ' ', 'g')
-endfunction
-
-function! s:get_image_urls(query) abort
-    let l:encodedquery = system('jq -Rr @uri', a:query)->trim()
-    let l:url = printf('https://www.googleapis.com/customsearch/v1?key=%s&cx=%s&searchType=image&q=%s', g:img_search_api_key, g:img_search_engine_id, l:encodedquery)
-
-    try
-        let l:res = printf("curl -s '%s'", l:url)->system()->json_decode()
-        return l:res.items
-            \ ->map('v:val.link')
-            \ ->filter('v:val->tolower()->match("\.\(png\|jpg\|jpeg\)$") >= 0')
-    catch
-        echoerr v:exception
-    endtry
-
-    return []
-endfunction
-
-function! s:save_url_file(searchword, urls) abort
-    if !isdirectory(s:TMP_DIR)
-        call mkdir(s:TMP_DIR, 'p')
+function! s:clear_image() abort
+    if empty(s:window)
+        return
     endif
 
-    call glob(s:TMP_DIR . '/*.sixel')->split("\n")->map('delete(v:val)')
-
-    call a:urls->insert(a:searchword)
-    call writefile(a:urls, s:URL_FILE)
-endfunction
-
-function! s:open_window(winname) abort
-    execute 'silent new +set\ nonumber ' . a:winname
-
-    let l:winid = win_getid()
-    let l:pos = screenpos(l:winid, 1, 1)
-
-    silent! wincmd p
+    printf("\x1b[%d;%dH\x1b[J", s:window.row, s:window.col)->echoraw()
+    call win_execute(s:window.id, 'close')
     redraw
 
-    return {
-    \  'id': l:winid,
-    \  'row': l:pos.row,
-    \  'col': l:pos.col,
-    \ }
+    let s:window = {}
+endfunction
+
+function! img_search#search_image(mode) abort
+    if !exists('g:img_search_api_key') || !exists('g:img_search_engine_id')
+        echo 'Both g:img_search_api_key and g:img_search_engine_id are required'
+        return
+    endif
+
+    let l:searchword = ''
+    if a:mode ==# 'normal'
+        let l:searchword = expand('<cword>')
+    elseif a:mode ==# 'visual'
+        let l:searchword = s:get_selected_word()
+    else
+        echoerr 'Invalid mode'
+    endif
+
+    if empty(l:searchword)
+        return
+    endif
+
+    let l:urls = s:get_image_urls(l:searchword)
+    call s:save_url_file(l:searchword, l:urls)
+
+    let s:imgidx = 1
+    call s:show_image()
+endfunction
+
+function! img_search#show_prev_image() abort
+    if s:imgidx <= 1
+        echo 'No image'
+        return
+    endif
+
+    let s:imgidx -= 1
+
+    call s:clear_image()
+    call s:show_image()
+endfunction
+
+function! img_search#show_next_image() abort
+    if s:imgidx > 10
+        echo 'No image'
+        return
+    endif
+
+    let s:imgidx += 1
+
+    call s:clear_image()
+    call s:show_image()
 endfunction
 
 let &cpo = s:save_cpo
