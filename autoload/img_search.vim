@@ -1,159 +1,164 @@
-vim9script
+scriptencoding utf-8
 
-const TMP_DIR = expand('~/.vim/img-search')
-const URL_FILE = TMP_DIR .. '/url.txt'
-const REG_TMP = '"'
+let s:TMP_DIR = expand('~/.vim/img-search')
+let s:URL_FILE = s:TMP_DIR . '/url.txt'
+let s:REG_TMP = '"'
 
-var window: dict<number>
-var imgidx = 1
+let s:window
+let s:imgidx
 
-export def SearchImage(mode: string)
+let s:save_cpo = &cpo
+set cpo&vim
+
+function! s:search_image(mode) abort
     if !exists('g:img_search_api_key') || !exists('g:img_search_engine_id')
         echo 'Both g:img_search_api_key and g:img_search_engine_id are required'
         return
     endif
 
-    var searchword = ''
-    if mode ==# 'normal'
-        searchword = expand('<cword>')
-    elseif mode ==# 'visual'
-        searchword = GetSelectedWord()
+    let l:searchword = ''
+    if a:mode ==# 'normal'
+        let l:searchword = expand('<cword>')
+    elseif a:mode ==# 'visual'
+        let l:searchword = s:get_selected_word()
     else
         echoerr 'Invalid mode'
     endif
 
-    if empty(searchword)
+    if empty(l:searchword)
         return
     endif
 
-    final urls = GetImageUrls(searchword)
-    SaveUrlFile(searchword, urls)
+    let l:urls = s:get_image_urls(l:searchword)
+    call s:save_url_file(l:searchword, l:urls)
 
-    imgidx = 1
-    ShowImage()
-enddef
+    let s:imgidx = 1
+    call s:show_image()
+endfunction
 
-export def ShowPrevImage()
-    if imgidx <= 1
+function! s:show_prev_image() abort
+    if s:imgidx <= 1
         echo 'No image'
         return
     endif
 
-    imgidx -= 1
+    let s:imgidx -= 1
 
-    ClearImage()
-    ShowImage()
-enddef
+    call s:clear_image()
+    call s:show_image()
+endfunction
 
-export def ShowNextImage()
-    if imgidx > 10
+function! s:show_next_image() abort
+    if s:imgidx > 10
         echo 'No image'
         return
     endif
 
-    imgidx += 1
+    let s:imgidx += 1
 
-    ClearImage()
-    ShowImage()
-enddef
+    call s:clear_image()
+    call s:show_image()
+endfunction
 
-export def ClearImage()
-    if empty(window)
+function! s:clear_image() abort
+    if empty(s:window)
         return
     endif
 
-    echoraw(printf("\x1b[%d;%dH\x1b[J", window.row, window.col))
-    win_execute(window.id, 'close')
+    call echoraw(printf("\x1b[%d;%dH\x1b[J", s:window.row, s:window.col))
+    call win_execute(s:window.id, 'close')
     redraw
 
-    window = {}
-enddef
+    let s:window = {}
+endfunction
 
-def ShowImage()
-    if !filereadable(URL_FILE)
+function! s:show_image() abort
+    if !filereadable(s:URL_FILE)
         return
     endif
 
-    const urls = readfile(URL_FILE)
-    const url = urls->get(imgidx, '')
+    let l:urls = readfile(s:URL_FILE)
+    let l:url = urls->get(s:imgidx, '')
 
-    if empty(url)
+    if empty(l:url)
         echo 'No image'
         return
     endif
 
-    setreg(REG_TMP, url)
+    call setreg(s:REG_TMP, l:url)
 
-    const sixelfile = printf('%s/%d.sixel', TMP_DIR, imgidx)
-    var sixel: string
+    let l:sixelfile = printf('%s/%d.sixel', s:TMP_DIR, s:imgidx)
+    let l:sixel
 
-    if filereadable(sixelfile)
-        sixel = readfile(sixelfile)->join("\n")
+    if filereadable(l:sixelfile)
+        let l:sixel = readfile(l:sixelfile)->join("\n")
     else
-        const maxwidth = exists('g:img_search_max_width') ? g:img_search_max_width : 480
-        const maxheight = exists('g:img_search_max_height') ? g:img_search_max_height : 270
+        let l:maxwidth = exists('g:img_search_max_width') ? g:img_search_max_width : 480
+        let l:maxheight = exists('g:img_search_max_height') ? g:img_search_max_height : 270
 
-        sixel = printf("set -o pipefail; curl -s '%s' | convert - -resize '%dx%d>' jpg:- | img2sixel",
-            url, maxwidth, maxheight)->system()
+        let l:sixel = printf("set -o pipefail; curl -s '%s' | convert - -resize '%dx%d>' jpg:- | img2sixel", l:url, l:maxwidth, l:maxheight)
+            \ ->system()
         if v:shell_error
             echo 'Cannot show image'
             return
         endif
 
-        writefile([sixel], sixelfile)
+        call writefile([l:sixel], l:sixelfile)
     endif
 
-    const winname = printf('%s (%d／%d)', urls->get(0, '')->trim(), imgidx, urls->len() - 1)
-    window = OpenWindow(winname)
+    let l:winname = printf('%s (%d／%d)', l:urls->get(0, '')->trim(), s:imgidx, l:urls->len() - 1)
+    let s:window = open_window(l:winname)
 
-    echoraw(printf("\x1b[%d;%dH%s", window.row, window.col, sixel))
-enddef
+    call echoraw(printf("\x1b[%d;%dH%s", s:window.row, s:window.col, l:sixel))
+endfunction
 
-def GetSelectedWord(): string
-    execute 'normal! "' .. REG_TMP .. 'y'
-    return getreg(REG_TMP)->trim(" \t")->substitute('[\r\n]\+', ' ', 'g')
-enddef
+function! s:get_selected_word() abort
+    execute 'normal! "' . s:REG_TMP . 'y'
+    return getreg(s:REG_TMP)->trim(" \t")->substitute('[\r\n]\+', ' ', 'g')
+endfunction
 
-def GetImageUrls(query: string): list<string>
-    const encodedquery = system('jq -Rr @uri', query)->trim()
-    const url = printf('https://www.googleapis.com/customsearch/v1?key=%s&cx=%s&searchType=image&q=%s',
-        g:img_search_api_key, g:img_search_engine_id, encodedquery)
+function! s:get_image_urls(query) abort
+    let l:encodedquery = system('jq -Rr @uri', a:query)->trim()
+    let l:url = printf('https://www.googleapis.com/customsearch/v1?key=%s&cx=%s&searchType=image&q=%s', g:img_search_api_key, g:img_search_engine_id, l:encodedquery)
 
     try
-        final res: dict<any> = printf("curl -s '%s'", url)->system()->json_decode()
-        return res.items
-            ->map((_, item) => item.link)
-            ->filter((_, link) => link->tolower()->match('\.\(png\|jpg\|jpeg\)$') >= 0)
+        let l:res = printf("curl -s '%s'", l:url)->system()->json_decode()
+        return l:res.items
+            \ ->map('v:val.link')
+            \ ->filter('v:val->tolower()->match("\.\(png\|jpg\|jpeg\)$") >= 0')
     catch
         echoerr v:exception
     endtry
 
     return []
-enddef
+endfunction
 
-def SaveUrlFile(searchword: string, urls: list<string>)
-    if !isdirectory(TMP_DIR)
-        mkdir(TMP_DIR, 'p')
+function! s:save_url_file(searchword, urls) abort
+    if !isdirectory(s:TMP_DIR)
+        call mkdir(s:TMP_DIR, 'p')
     endif
 
-    glob(TMP_DIR .. '/*.sixel')->split("\n")->map('delete(v:val)')
+    call glob(s:TMP_DIR . '/*.sixel')->split("\n")->map('delete(v:val)')
 
-    urls->insert(searchword)
-    writefile(urls, URL_FILE)
-enddef
+    call a:urls->insert(a:searchword)
+    call writefile(a:urls, s:URL_FILE)
+endfunction
 
-def OpenWindow(winname: string): dict<number>
-    execute 'silent new +set\ nonumber ' .. winname
+function! s:open_window(winname) abort
+    execute 'silent new +set\ nonumber ' . a:winname
 
-    const winid = win_getid()
-    const pos = screenpos(winid, 1, 1)
+    let l:winid = win_getid()
+    let l:pos = screenpos(l:winid, 1, 1)
 
     silent! wincmd p
     redraw
 
     return {
-        id: winid,
-        row: pos.row,
-        col: pos.col,
-    }
-enddef
+    \  'id': l:winid,
+    \  'row': l:pos.row,
+    \  'col': l:pos.col,
+    \ }
+endfunction
+
+let &cpo = s:save_cpo
+unlet s:save_cpo

@@ -1,20 +1,13 @@
-if !has('vim9script')
-    echoerr 'Vim >= 9 is required'
-    finish
-endif
-
-vim9script
+scriptencoding utf-8
 
 if exists('g:loaded_img_search')
     finish
 endif
-g:loaded_img_search = true
+let g:loaded_img_search = 1
 
-import autoload 'img_search.vim' as is
+nnoremap <silent> <Esc>i img_search#search_image('normal')<CR>
+nnoremap <silent> <Esc>b img_search#show_prev_image()<CR>
+nnoremap <silent> <Esc>n img_search#show_next_image()<CR>
+nnoremap <silent> <Esc>j img_search#clear_image()<CR>
 
-nnoremap <silent> <Esc>i <ScriptCmd>is.SearchImage('normal')<CR>
-nnoremap <silent> <Esc>b <ScriptCmd>is.ShowPrevImage()<CR>
-nnoremap <silent> <Esc>n <ScriptCmd>is.ShowNextImage()<CR>
-nnoremap <silent> <Esc>j <ScriptCmd>is.ClearImage()<CR>
-
-xnoremap <silent> <Esc>i <ScriptCmd>is.SearchImage('visual')<CR>
+xnoremap <silent> <Esc>i img_search#search_image('visual')<CR>
