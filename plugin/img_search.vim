@@ -10,4 +10,4 @@ nnoremap <silent> <Esc>b :call img_search#show_prev_image()<CR>
 nnoremap <silent> <Esc>n :call img_search#show_next_image()<CR>
 nnoremap <silent> <Esc>j :call img_search#clear_image()<CR>
 
-xnoremap <silent> <Esc>i :call img_search#search_image('visual')<CR>
+xnoremap <silent> <Esc>i :<C-u>call img_search#search_image('visual')<CR>
