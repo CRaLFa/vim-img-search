@@ -5,6 +5,7 @@ let s:URL_FILE = s:TMP_DIR .. '/url.txt'
 let s:REG_TMP = '"'
 
 let s:window = {}
+let s:imgcnt = 10
 let s:imgidx = 1
 
 let s:save_cpo = &cpo
@@ -32,7 +33,9 @@ function! img_search#search_image(mode) abort
     let l:urls = s:get_image_urls(l:searchword)
     call s:save_url_file(l:searchword, l:urls)
 
+    let s:imgcnt = len(l:urls) - 1
     let s:imgidx = 1
+
     call s:show_image()
 endfunction
 
@@ -61,7 +64,7 @@ function! img_search#show_prev_image() abort
 endfunction
 
 function! img_search#show_next_image() abort
-    if s:imgidx > 10
+    if s:imgcnt <= s:imgidx
         echo 'No image'
         return
     endif
@@ -106,7 +109,7 @@ function! s:show_image() abort
         call writefile([l:sixel], l:sixelfile)
     endif
 
-    let l:winname = printf('%s (%d／%d)', trim(get(l:urls, 0, '')), s:imgidx, len(l:urls) - 1)
+    let l:winname = printf('%s (%d／%d)', trim(get(l:urls, 0, '')), s:imgidx, s:imgcnt)
     let s:window = s:open_window(l:winname)
 
     call echoraw(printf("\x1b[%d;%dH%s", s:window.row, s:window.col, l:sixel))
